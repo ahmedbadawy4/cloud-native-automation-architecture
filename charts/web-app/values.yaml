@@ -2,7 +2,7 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  repository: ghcr.io/ahmedbadawy4/sre-gitops
+  repository: ghcr.io/ahmedbadawy4/cloud-native-automation-architecture
   tag: "main"
   pullPolicy: IfNotPresent
 
@@ -68,3 +68,12 @@ prometheus:
   scrape: true
   path: /metrics
   port: 8080
+
+# Prometheus Operator ServiceMonitor. The release label must match the
+# serviceMonitorSelector of the Prometheus that should scrape the app;
+# kube-prometheus-stack uses its Helm release name ("monitoring" here).
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels:
+    release: monitoring

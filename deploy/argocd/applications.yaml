@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: "https://github.com/ahmedbadawy4/sre-gitops.git"
+    repoURL: "https://github.com/ahmedbadawy4/cloud-native-automation-architecture.git"
     targetRevision: "main"
     path: deploy/argocd/apps
   destination:

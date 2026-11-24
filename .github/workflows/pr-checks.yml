@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -24,8 +27,37 @@ jobs:
       - name: Install pre-commit
         run: pip install pre-commit
 
+      # The workflows publish ghcr.io/<owner>/<repository>. A repository rename
+      # does not rename the package, so the image name used by the chart and the
+      # Makefile has to follow the repository name.
+      - name: Image name matches the repository
+        run: |
+          expected="ghcr.io/$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          failed=0
+          for f in charts/web-app/values.yaml charts/values-dev.yaml charts/values-prod.yaml; do
+            actual="$(awk '$1 == "repository:" { gsub(/"/, "", $2); print $2; exit }' "$f")"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error file=$f::image.repository is '$actual', expected '$expected'"
+              failed=1
+            fi
+          done
+          actual="$(awk '$1 == "IMAGE_NAME" && $2 == "?=" { print $3; exit }' Makefile)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error file=Makefile::IMAGE_NAME is '$actual', expected '$expected'"
+            failed=1
+          fi
+          exit "$failed"
+
       - name: Helm lint
-        run: helm lint charts/web-app
+        run: |
+          helm lint charts/web-app
+          helm lint charts/web-app -f charts/values-dev.yaml
+          helm lint charts/web-app -f charts/values-prod.yaml
+
+      - name: Helm template (dev and prod values)
+        run: |
+          helm template web-app-dev charts/web-app -f charts/values-dev.yaml --namespace web-app-dev > /dev/null
+          helm template web-app-prod charts/web-app -f charts/values-prod.yaml --namespace web-app-prod > /dev/null
 
       - name: Hadolint
         uses: hadolint/hadolint-action@v3.1.0

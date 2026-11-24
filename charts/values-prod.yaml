@@ -1,9 +1,11 @@
 image:
-  repository: ghcr.io/ahmedbadawy4/sre-gitops
+  repository: ghcr.io/ahmedbadawy4/cloud-native-automation-architecture
   tag: "v0.0.3"
 
 replicaCount: 2
 environment: "prod"
+serviceMonitor:
+  enabled: true
 autoscaling:
   enabled: true
   minReplicas: 2

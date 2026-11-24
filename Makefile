@@ -7,8 +7,13 @@ APP_DEV_NAMESPACE ?= web-app-dev
 APP_PROD_NAMESPACE ?= web-app-prod
 APP_DEV_LOCAL_PORT ?= 8080
 APP_PROD_LOCAL_PORT ?= 8082
-IMAGE_NAME ?= ghcr.io/ahmedbadawy4/sre-gitops
+TRAEFIK_CHART_VERSION ?=
+# Must equal ghcr.io/<owner>/<repository>; the PR checks enforce this.
+IMAGE_NAME ?= ghcr.io/ahmedbadawy4/cloud-native-automation-architecture
 IMAGE_TAG ?= $(shell git describe --tags --always 2>/dev/null || echo main)
+# Image tags that the Helm values files pin for dev and prod.
+DEV_TAG ?= $(shell sed -nE 's/^[[:space:]]*tag:[[:space:]]*"?([^"[:space:]]+)"?.*/\1/p' charts/values-dev.yaml | head -n 1)
+PROD_TAG ?= $(shell sed -nE 's/^[[:space:]]*tag:[[:space:]]*"?([^"[:space:]]+)"?.*/\1/p' charts/values-prod.yaml | head -n 1)
 KIND_CLUSTER ?= sre-gitops
 KIND_NODE_IMAGE ?= kindest/node:v1.35.0
 MINIKUBE_PROFILE ?= sre-gitops
@@ -18,7 +23,8 @@ K8S_CONTEXT ?=
 .DEFAULT_GOAL := help
 
 .PHONY: help tools-check docker-check k8s-check docker-build-image docker-build-image-local \
-	docker-build-image-kind k8s-kind-up k8s-minikube-up k8s-use-context traefik-install \
+	docker-build-image-kind docker-build-env-images kind-images minikube-images \
+	k8s-kind-up k8s-minikube-up k8s-use-context traefik-install \
 	argocd-install argocd-deploy-apps argocd-sync argocd-password argocd-url app-urls \
 	monitoring-urls status cleanup-port-forwards cleanup-apps argocd-cleanup-port-forward \
 	argocd-cleanup-apps cleanup lint bootstrap-kind bootstrap-minikube up down pf-stop \
@@ -36,7 +42,10 @@ help:
 	@echo "  docker-build-image-local IMAGE_TAG=...   Build local image (no push)"
 	@echo "  docker-build-image-kind IMAGE_TAG=...    Build local image and load into kind"
 	@echo "  kind-load IMAGE_TAG=...            Load local image into kind"
-	@echo "  traefik-install        Install Traefik ingress controller"
+	@echo "  docker-build-env-images   Build the app once and tag it as the dev and prod tags from charts/values-*.yaml"
+	@echo "  kind-images            Build the dev and prod tags and load them into kind"
+	@echo "  minikube-images        Build the dev and prod tags and load them into minikube"
+	@echo "  traefik-install        Install Traefik ingress controller (TRAEFIK_CHART_VERSION pins the chart)"
 	@echo "  argocd-install         Install Argo CD (pinned version)"
 	@echo "  argocd-deploy-apps     Apply parent Argo CD Application (app-of-apps)"
 	@echo "  argocd-sync            Sync Argo CD apps (requires argocd CLI)"
@@ -58,7 +67,7 @@ help:
 	@echo "  cleanup                Delete this repo's apps and namespaces"
 	@echo "  lint                   Run pre-commit and helm lint"
 	@echo ""
-	@echo "Bootstrap from scratch (Kind): tools-check -> k8s-kind-up -> docker-check -> k8s-check -> docker-build-image -> traefik-install -> argocd-install -> argocd-deploy-apps -> argocd-url"
+	@echo "Bootstrap from scratch (Kind): tools-check -> k8s-kind-up -> docker-check -> k8s-check -> kind-images -> traefik-install -> argocd-install -> argocd-deploy-apps -> argocd-url"
 
 # Preflight checks
 
@@ -76,10 +85,10 @@ docker-check:
 k8s-check:
 	@command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
 	@ctx=$$(kubectl config current-context); \
-	if [[ "$$ctx" = "docker-desktop" ]] || [[ "$$ctx" = kind-* ]] || [[ "$$ctx" = "minikube" ]]; then \
+	if [[ "$$ctx" = "docker-desktop" ]] || [[ "$$ctx" = kind-* ]] || [[ "$$ctx" = "minikube" ]] || [[ "$$ctx" = "$(MINIKUBE_PROFILE)" ]]; then \
 	  echo "kubectl context ok ($$ctx)"; \
 	else \
-	  echo "warning: context is '$$ctx' (expected kind-$(KIND_CLUSTER), docker-desktop, or minikube)"; \
+	  echo "warning: context is '$$ctx' (expected kind-$(KIND_CLUSTER), docker-desktop, or $(MINIKUBE_PROFILE))"; \
 	fi
 
 # Cluster lifecycle
@@ -92,7 +101,7 @@ k8s-kind-up:
 k8s-minikube-up:
 	@command -v minikube >/dev/null 2>&1 || { echo "minikube not found"; exit 1; }
 	@minikube start -p "$(MINIKUBE_PROFILE)" --kubernetes-version="$(MINIKUBE_K8S_VERSION)"
-	@kubectl config use-context "minikube"
+	@kubectl config use-context "$(MINIKUBE_PROFILE)"
 
 k8s-use-context:
 	@if [[ -z "$(K8S_CONTEXT)" ]]; then echo "K8S_CONTEXT is required"; exit 1; fi
@@ -116,13 +125,30 @@ kind-load:
 	@command -v kind >/dev/null 2>&1 || { echo "kind not found"; exit 1; }
 	@kind load docker-image "$(IMAGE_NAME):$(IMAGE_TAG)" --name "$(KIND_CLUSTER)"
 
+# The values files pin one tag per environment (dev: DEV_TAG, prod: PROD_TAG).
+# Build the app once and tag it with both, so a cluster that cannot pull from
+# GHCR starts both environments from the local build.
+docker-build-env-images:
+	@docker build -t "$(IMAGE_NAME):$(DEV_TAG)" app
+	@docker tag "$(IMAGE_NAME):$(DEV_TAG)" "$(IMAGE_NAME):$(PROD_TAG)"
+
+kind-images: docker-build-env-images
+	@command -v kind >/dev/null 2>&1 || { echo "kind not found"; exit 1; }
+	@kind load docker-image "$(IMAGE_NAME):$(DEV_TAG)" "$(IMAGE_NAME):$(PROD_TAG)" --name "$(KIND_CLUSTER)"
+
+minikube-images: docker-build-env-images
+	@command -v minikube >/dev/null 2>&1 || { echo "minikube not found"; exit 1; }
+	@minikube image load "$(IMAGE_NAME):$(DEV_TAG)" -p "$(MINIKUBE_PROFILE)"
+	@minikube image load "$(IMAGE_NAME):$(PROD_TAG)" -p "$(MINIKUBE_PROFILE)"
+
 # Platform installs
 
 traefik-install:
 	@command -v helm >/dev/null 2>&1 || { echo "helm not found"; exit 1; }
 	@helm repo add traefik https://traefik.github.io/charts >/dev/null; \
 	helm repo update >/dev/null; \
-	helm upgrade --install traefik traefik/traefik -n traefik --create-namespace -f tools/traefik-values.yaml
+	helm upgrade --install traefik traefik/traefik -n traefik --create-namespace \
+	  $(if $(TRAEFIK_CHART_VERSION),--version "$(TRAEFIK_CHART_VERSION)") -f tools/traefik-values.yaml
 
 argocd-install:
 	@command -v helm >/dev/null 2>&1 || { echo "helm not found"; exit 1; }
@@ -270,9 +296,9 @@ cleanup: argocd-cleanup-port-forward argocd-cleanup-apps
 
 # Aliases
 
-bootstrap-kind: k8s-kind-up docker-check k8s-check docker-build-image-local kind-load traefik-install argocd-install argocd-deploy-apps argocd-url
+bootstrap-kind: k8s-kind-up docker-check k8s-check kind-images traefik-install argocd-install argocd-deploy-apps argocd-url
 
-bootstrap-minikube: k8s-minikube-up docker-check k8s-check docker-build-image-local traefik-install argocd-install argocd-deploy-apps argocd-url
+bootstrap-minikube: k8s-minikube-up docker-check k8s-check minikube-images traefik-install argocd-install argocd-deploy-apps argocd-url
 
 up: argocd-deploy-apps
 

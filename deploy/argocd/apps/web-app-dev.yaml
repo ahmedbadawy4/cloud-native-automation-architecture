@@ -6,7 +6,7 @@ metadata:
 spec:
   project: web-app-dev
   source:
-    repoURL: "https://github.com/ahmedbadawy4/sre-gitops.git"
+    repoURL: "https://github.com/ahmedbadawy4/cloud-native-automation-architecture.git"
     targetRevision: "main"
     path: charts/web-app
     helm:
@@ -21,3 +21,11 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+    # The chart renders a ServiceMonitor, whose CRD arrives with the monitoring
+    # application. Retry until that CRD exists.
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

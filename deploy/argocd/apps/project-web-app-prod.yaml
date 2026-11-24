@@ -3,10 +3,13 @@ kind: AppProject
 metadata:
   name: web-app-prod
   namespace: argocd
+  annotations:
+    # Create the project before the application that uses it.
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
-  description: Prod applications for sre-gitops
+  description: Prod applications for cloud-native-automation-architecture
   sourceRepos:
-    - https://github.com/ahmedbadawy4/sre-gitops.git
+    - https://github.com/ahmedbadawy4/cloud-native-automation-architecture.git
   destinations:
     - namespace: web-app-prod
       server: https://kubernetes.default.svc
