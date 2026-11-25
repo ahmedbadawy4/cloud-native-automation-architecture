@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
           version: v3.14.4
 
@@ -60,7 +60,7 @@ jobs:
           helm template web-app-prod charts/web-app -f charts/values-prod.yaml --namespace web-app-prod > /dev/null
 
       - name: Hadolint
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
         with:
           dockerfile: app/Dockerfile
 
